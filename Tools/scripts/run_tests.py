@@ -42,6 +42,7 @@ def main(regrtest_args):
             '_PYTHON_PROJECT_BASE',
             '_PYTHON_HOST_PLATFORM',
             '_PYTHON_SYSCONFIGDATA_NAME',
+            "_PYTHON_SYSCONFIGDATA_PATH",
             'PYTHONPATH'
         }
         environ = {
