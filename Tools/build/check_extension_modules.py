@@ -125,6 +125,41 @@ class ModuleState(enum.Enum):
 
 ModuleInfo = collections.namedtuple("ModuleInfo", "name state")
 
+class _SysConfigShim:
+    """
+    A class to shim the sysconfig data from the cross compile build directory.
+
+    It's not safe to include foreign import directories in sys.path as the host
+    compatible interpreter may attempt to load libraries it's incompatible with.
+
+    However, we need to interrogate the target build to check that modules were
+    compiled correctly so we need to load data from sysconfigdata that resides
+    in the build directory.
+    """
+    def __init__(self, lib_path: pathlib.Path):
+        from importlib.machinery import FileFinder, SourceFileLoader, SOURCE_SUFFIXES
+        from importlib.util import module_from_spec
+
+        configdata = os.environ.get("_PYTHON_SYSCONFIGDATA_NAME")
+        if configdata is None:
+            raise RuntimeError(f'_PYTHON_SYSCONFIGDATA_NAME is required for cross compilation')
+        spec = FileFinder(str(lib_path) ,(SourceFileLoader, SOURCE_SUFFIXES)).find_spec(configdata)
+        if spec is None:
+            raise RuntimeError(f'Could not find find sysconfig data for {configdata}')
+        
+        self.target_module = module_from_spec(spec)
+        spec.loader.exec_module(self.target_module)
+
+    def get_config_var(self, name: str):
+        return self.get_config_vars().get(name)
+
+    def get_config_vars(self, *args):
+        if args:
+            vals = []
+            for name in args:
+                vals.append(self.target_module.build_time_vars.get(name))
+            return vals
+        return self.target_module.build_time_vars
 
 class ModuleChecker:
     pybuilddir_txt = "pybuilddir.txt"
@@ -139,10 +174,15 @@ class ModuleChecker:
 
     def __init__(self, cross_compiling: bool = False, strict: bool = False):
         self.cross_compiling = cross_compiling
+        self.builddir = self.get_builddir()
+        if self.cross_compiling:
+            shim = _SysConfigShim(self.builddir)
+            sysconfig.get_config_var = shim.get_config_var
+            sysconfig.get_config_vars = shim.get_config_vars
+
         self.strict_extensions_build = strict
         self.ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")
         self.platform = sysconfig.get_platform()
-        self.builddir = self.get_builddir()
         self.modules = self.get_modules()
 
         self.builtin_ok = []

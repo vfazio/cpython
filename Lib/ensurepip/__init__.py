@@ -24,7 +24,29 @@ _Package = collections.namedtuple('Package',
 # policies recommend against bundling dependencies. For example, Fedora
 # installs wheel packages in the /usr/share/python-wheels/ directory and don't
 # install the ensurepip._bundled package.
-_WHEEL_PKG_DIR = sysconfig.get_config_var('WHEEL_PKG_DIR')
+if '_PYTHON_HOST_PLATFORM' in os.environ:
+    # When invoked during a cross compile, use the sysconfigdata file from the build directory.
+    _WHEEL_PKG_DIR = None
+    
+    from importlib.machinery import FileFinder, SourceFileLoader, SOURCE_SUFFIXES
+    from importlib.util import module_from_spec
+
+    build_dir = os.environ.get("_PYTHON_PROJECT_BASE")
+    pybuild = os.path.join(build_dir, "pybuilddir.txt")
+    if os.path.exists(pybuild):
+        with open(pybuild, encoding="utf-8") as f:
+            builddir = f.read()
+        target_lib_dir = os.path.join(build_dir, builddir)
+        spec = FileFinder(target_lib_dir ,(SourceFileLoader, SOURCE_SUFFIXES)).find_spec(
+            os.environ.get("_PYTHON_SYSCONFIGDATA_NAME")
+        )
+        if spec is not None:
+            target_module = module_from_spec(spec)
+            spec.loader.exec_module(target_module)
+
+            _WHEEL_PKG_DIR = target_module.build_time_vars.get('WHEEL_PKG_DIR')
+else:
+    _WHEEL_PKG_DIR = sysconfig.get_config_var('WHEEL_PKG_DIR')
 
 
 def _find_packages(path):
